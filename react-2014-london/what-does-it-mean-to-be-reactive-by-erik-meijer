@@ -1,0 +1,162 @@
+The 4 Fundamental (Side) Effects
+        One         Many
+Sync    T           Enumerable[T]
+Async   Future[T]   Observable[T]
+
+
+Objects and (Side) Effects:
+  Objects are just Getters and Setters (Effects, Mutation)
+  They like to be mutated.
+
+
+What is the essence of a Getter?
+  It seems a function from Nothing to a Value: () => A
+  Like a Lazy Producer, it does nothing until I call it.
+  The Consumer is in charge.
+
+  It's Covariant:
+    If A is a subtype of B (A <: B) then
+    a Getter that produces an A (() -> A) is a subtype of
+    a Getter that produces a  B (() -> B)
+            A <: B
+      () -> A <: () -> B
+
+  It's a Functor:
+    map     :: (A -> B) -> (() -> A) -> (() -> B)
+    map f a = () => f(a())
+
+  Making Side Effects on Getters Explicit in the Type:
+    (1) It can produce a value of type A or an exception:
+        () => Try[A]
+    (2) It can produce a value of type A or
+        it terminates naturally (giving you nothing) or
+        it terminates with a side effect (like an exception):
+        () => Try[Option[A]]
+
+  Creating a Getter of Getters
+    () => (Try[Option[A]] => ())
+
+  Implementing a Getter of Getters Interface in pseudoScala
+    trait Enumerable[+A] {
+      def getEnumerator(): Enumerator[A]
+    }
+
+    trait Observer[+A] {
+      def moveNext(): Boolean
+      def current: A
+    }
+
+  Considerations about the Getter of Getters Interface
+    The Consumer is in charge.
+    The Getter of Getters function is getEnumerator
+    Pull-Based: If I want a value I (the Consumer) need to call moveNext and then current
+
+  Lifting map (for Getters) to work with Getter of Getters
+    map      :: (A -> B) -> Enumerable[A] -> Enumerable[B]
+    map f as = as.lift(_.map)
+
+
+What is the essence of a Setter?
+  It seems a function from a Value to Nothing: A => ()
+  Like a Lazy Consumer, it does nothing until I call it
+  The Producer is in charge
+
+  It's Contravariant
+    If A is A subtype of B (A <: B) the
+    a Setter of B (B -> ()) is a subtype of
+    a Setter of a (A -> ())
+            A <: B
+      B -> () <: A -> ()
+
+  It's a coFunctor:
+    map     :: (A -> B) -> ((B -> ()) -> (A -> ()))
+    map f b = a => (b(f a))
+
+  Making Side Effects on Setters Explicit in the Type:
+    (1) Taking into account Exceptions:
+        Try[A] => ()
+    (2) Taking into account Termination and Exceptions:
+        Try[Option[A]] => ()
+
+  Creating a Setter of Setters
+    (Try[Option[A]] => ()) => ()
+
+  Implementing a Setter of Setters Interface in pseudoScala (avoiding Pattern Matching):
+    trait Observable[+A] {
+      def Subscribe(o: Observer[A]): ()
+    }
+
+    trait Observer[-A] {
+      def onCompleted(): ()
+      def onError(error: Throwable): ()
+      def onNext(value: A): ()
+    }
+
+  Considerations about the Getter of Getters Interface
+    The Producer is in charge.
+    Push-Based: You have no choice than to REACT on the Producer sending values to you (onNext)
+    onNext: Let it stream in!
+
+  Lifting map (for Setters) to work with Setter of Setters
+    map      :: (A -> B) -> Observable[A] -> Observable[B]
+    map f as = as.lift(_.map)
+
+  The Contravariance in Setters becomes Covariance in the Setter of Setters (it's a Functor)
+    The map for Setters (coFunctor)
+      map :: (A -> B) -> ((B -> ()) -> (A -> ()))
+    The map for the Setter of Setters (Functor)
+      map :: (A -> B) -> Observable[A] -> Observable[B]
+
+
+2 Interfaces for collections:
+  - Pull-based collections (Getters) (Iterable, Enumerables)
+  - Push-based collections (Setters) (Observer, Observables)
+
+
+Monads
+  A  Future is something (a type) that guards you against (or captures) the effect of Latency, just like
+  a  Try    is something (a type) that guards you against (or captures) the effect of Exceptions, just like
+  an Option is something (a type) that guards you against (or captures) the effect of Nulls.
+
+  So Futures, Tries and Options capture an Effect.
+  They are MONADS.
+
+
+Making (Side) Effects on Getters Explicit in the Type (CONTINUATION)
+  (3) Taking into account Futures, Terminations and Exceptions:
+      () => Future[Try[Option[A]]]
+
+  Interfaces: Async Enumerable
+    trait Enumerable[+A] {
+      def getEnumerator(): Enumerator[A]
+    }
+
+    trait Enumerator[+A] {
+      def moveNext(): Future[Boolean]
+      def current: A
+    }
+  The Future[Boolean] line protects Fast Consumers against Slow Producers
+
+
+Making (Side) Effects on Setters Explicit in the Type (CONTINUATION)
+  (3) Taking into account Futures, Terminations and Exceptions:
+      Try[Option[A]] => Future[()]
+      (Guards against a Slow Consumer -> The 'Future' needs to be on the Consumer side)
+
+  Interfaces: Async Observable
+    trait Observable[+A] {
+      def Subscribe(o: Observer[A]): Unit
+    }
+
+    trait Observer[-A] {
+      def onCompleted():             Future[()]
+      def onError(error: Throwable): Future[()]
+      def onNext(value: A):          Future[()]
+    }
+  The Future[()] lines protect Fast Producers against Slow Consumers
+
+
+Reactive: A tasteful composition of Side Effects.
+  Choose the Effects you need and compose them.
+  As always, don't believe the hype, there's no Silver Bullet.
+
